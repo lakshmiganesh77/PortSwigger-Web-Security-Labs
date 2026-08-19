@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lab 04: Web Shell Upload via Extension Blacklist Bypass</title>
+  <style>
+  @import url("https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.9.0-alpha2/katex.min.css");
+
+  body {
+    font-family: Georgia, Cambria, serif;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #373D49;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+  h1 { font-size: 2em; }
+  h2 { font-size: 1.5em; }
+  h3 { font-size: 1.25em; }
+  a { color: #35D7BB; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: "Ubuntu Mono", Monaco, monospace;
+    background: #F5F7FA;
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+  }
+  pre {
+    background: #F5F7FA;
+    padding: 1em;
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  .hljs {
+    display: block;
+    overflow-x: auto;
+    padding: 0;
+    color: #333;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    border-left: 3px solid #A0AABF;
+    padding-left: 1em;
+    margin-left: 0;
+    font-style: italic;
+    color: #666;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #E8E8E8;
+    padding: 0.5em;
+    text-align: left;
+  }
+  th {
+    background: #F5F7FA;
+    font-weight: 600;
+  }
+  #preview .table {
+    width: auto;
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+</style>
+</head>
+<body id="preview">
+<h1 class="code-line has-line-data" data-line-start="0" data-line-end="1"><a id="File_Upload_Vulnerabilities_Lab_4_Web_Shell_Upload_via_Extension_Blacklist_Bypass_0"></a>File Upload Vulnerabilities - Lab #4: Web Shell Upload via Extension Blacklist Bypass</h1>
+<p class="has-line-data" data-line-start="2" data-line-end="3"><strong>YouTube Tutorial:</strong> <a href="https://youtu.be/c_NT4lIaNuA?si=Z1jFFsrw2VlFPs3A">File Upload Vulnerabilities - Lab #4 Web shell upload via extension blacklist bypass</a></p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="6" data-line-end="7"><a id="1_What_is_an_Extension_Blacklist_Bypass_6"></a>1. What is an Extension Blacklist Bypass?</h2>
+<h3 class="code-line has-line-data" data-line-start="8" data-line-end="9"><a id="Core_Concept_8"></a>Core Concept</h3>
+<p class="has-line-data" data-line-start="10" data-line-end="11">This lab adds a genuinely reasonable-sounding defense: the server maintains a list of dangerous file extensions — <code>.php</code>, and presumably common variants like it — and rejects any upload whose filename ends in one of them. Uploading <code>shell.php</code> directly gets flatly refused this time, with the app telling you plainly that PHP files aren’t allowed.</p>
+<p class="has-line-data" data-line-start="12" data-line-end="13">The flaw isn’t in the <em>idea</em> of a blacklist — it’s that blacklists are fundamentally a “list everything bad” approach, and it’s almost impossible to actually list everything bad. Rather than hunting for some obscure alternate PHP extension the blacklist forgot about, this lab’s intended solution goes a level deeper: instead of trying to sneak a <code>.php</code> file past the filter, you upload a completely different kind of file — an Apache configuration file called <code>.htaccess</code> — which itself isn’t blocked by the blacklist at all, because it doesn’t look dangerous on its own. But that configuration file’s <em>job</em> is to tell the web server “treat any file with this other extension as executable PHP.” Once that <code>.htaccess</code> file is in place, you can upload something with a totally harmless-looking extension, and the server will now happily execute it as PHP anyway — because you told it to, using a file the blacklist never thought to block.</p>
+<pre><code class="has-line-data" data-line-start="15" data-line-end="46">┌─────────────────────────────┐        ┌─────────────────────────────┐
+│   DIRECT ATTEMPT (BLOCKED)   │        │   THE .htaccess TRICK        │
+├─────────────────────────────┤        ├─────────────────────────────┤
+│ Upload shell.php             │        │ Step 1: upload a file named  │
+│                               │        │ .htaccess containing:        │
+│ Blacklist sees &quot;.php&quot;,       │        │ AddType application/         │
+│ REJECTS the upload           │        │   x-httpd-php .l33t          │
+└─────────────────────────────┘        └───────────────┬─────────────┘
+                                                         │
+                                                         ▼
+                                        ┌─────────────────────────────┐
+                                        │ .htaccess itself ISN'T on    │
+                                        │ the blacklist — it's not     │
+                                        │ &quot;.php&quot;, so it uploads fine   │
+                                        └───────────────┬─────────────┘
+                                                         │
+                                                         ▼
+                                        ┌─────────────────────────────┐
+                                        │ Step 2: upload shell.l33t    │
+                                        │ (harmless-looking extension, │
+                                        │ also not on the blacklist)   │
+                                        └───────────────┬─────────────┘
+                                                         │
+                                                         ▼
+                                        ┌─────────────────────────────┐
+                                        │ Apache now treats ANY .l33t  │
+                                        │ file as PHP, because YOU     │
+                                        │ told it to via .htaccess     │
+                                        │ = Remote Code Execution ✅   │
+                                        └─────────────────────────────┘
+</code></pre>
+<p class="has-line-data" data-line-start="47" data-line-end="48">The oracle here is a mismatch between what the blacklist is checking (a fixed list of “known dangerous” extensions) and what actually determines execution behavior on an Apache server (whatever the <em>active configuration</em> says, which you can rewrite yourself if <code>.htaccess</code> uploads are permitted in a directory Apache treats as configurable).</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="51" data-line-end="52"><a id="2_Attack_Overview_Key_Concepts_51"></a>2. Attack Overview &amp; Key Concepts</h2>
+<h3 class="code-line has-line-data" data-line-start="53" data-line-end="54"><a id="Vulnerability_Explanation_53"></a>Vulnerability Explanation</h3>
+<p class="has-line-data" data-line-start="55" data-line-end="56">This lab contains a vulnerable image upload function. Certain file extensions are blacklisted, but this defense can be bypassed due to a fundamental flaw in the configuration of this blacklist. To solve the lab, upload a basic PHP web shell, then use it to exfiltrate the contents of the file <code>/home/carlos/secret</code>.</p>
+<ul>
+<li class="has-line-data" data-line-start="57" data-line-end="58"><strong>Provided Credentials:</strong> <code>wiener:peter</code></li>
+<li class="has-line-data" data-line-start="58" data-line-end="59"><strong>Hint given by the lab itself:</strong> You need to upload two different files to solve this lab — this is a strong signal that the intended solution isn’t a single clever filename, but a two-stage process.</li>
+<li class="has-line-data" data-line-start="59" data-line-end="60"><strong>What Changed From Earlier Labs:</strong> Uploading <code>.php</code> directly is now flatly rejected with a clear “php files are not allowed” style message — this is a real, functioning check, not something bypassable via Content-Type or path tricks alone.</li>
+<li class="has-line-data" data-line-start="60" data-line-end="62"><strong>End Goal:</strong> Same as before — get PHP code executing on the server, use it to read <code>/home/carlos/secret</code>, and submit the contents.</li>
+</ul>
+<h3 class="code-line has-line-data" data-line-start="62" data-line-end="63"><a id="Root_Cause_Impact_62"></a>Root Cause &amp; Impact</h3>
+<p class="has-line-data" data-line-start="64" data-line-end="65">The root cause is that a blacklist can only ever block extensions its authors thought to include — and it’s fundamentally incomplete by design, since there’s no way to enumerate every possible extension a web server might be configured to execute. Worse, in this specific lab, the blacklist doesn’t account for the fact that Apache’s behavior can itself be reconfigured <em>by an uploaded file</em> — meaning the attacker doesn’t need to find a forgotten dangerous extension at all; they can simply create one, by uploading configuration that defines a brand-new “dangerous” extension of their own choosing, using a filename (<code>.htaccess</code>) the blacklist never considered a threat in the first place.</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="68" data-line-end="69"><a id="3_Attack_Methods_Techniques_What_I_Tried_and_What_Actually_Worked_68"></a>3. Attack Methods &amp; Techniques (What I Tried, and What Actually Worked)</h2>
+<p class="has-line-data" data-line-start="70" data-line-end="71"><strong>First move — the obvious one.</strong> Uploading <code>shell.php</code> exactly as in the earlier labs. This time it’s rejected outright, with an explicit error saying PHP files aren’t allowed. Checking the raw request and response in Burp confirms the rejection is happening server-side, based on the filename’s extension specifically.</p>
+<p class="has-line-data" data-line-start="72" data-line-end="73"><strong>Trying a couple of quick, obvious variants.</strong> Testing whether the blacklist is exhaustive by trying a few well-known alternate PHP-executing extensions like <code>.php5</code> or <code>.phtml</code> (techniques that solved similar-looking labs elsewhere). Depending on how thorough this particular blacklist is, these may or may not be blocked too — but the lab’s own hint (needing to upload <em>two</em> files) points toward a different, more deliberate technique rather than extension guessing.</p>
+<p class="has-line-data" data-line-start="74" data-line-end="75"><strong>Checking what web server is actually running.</strong> Looking at the response headers from any request reveals a <code>Server: Apache/...</code> header. Knowing this is Apache is the key piece of context — Apache supports per-directory configuration files named <code>.htaccess</code>, which, if the web server is configured to allow them (a setting called <code>AllowOverride</code>), let anyone who can place a file in that directory change how Apache behaves for that directory, without needing access to the main server configuration at all.</p>
+<p class="has-line-data" data-line-start="76" data-line-end="77"><strong>The actual technique — reconfigure the server via <code>.htaccess</code>.</strong> Since <code>.htaccess</code> isn’t a PHP file and isn’t on the blacklist, it should upload cleanly. Inside it, a single Apache directive can map any extension of your choosing to PHP execution:</p>
+<pre><code class="has-line-data" data-line-start="79" data-line-end="81">AddType application/x-httpd-php .l33t
+</code></pre>
+<p class="has-line-data" data-line-start="82" data-line-end="83"><strong>Uploading the <code>.htaccess</code> file itself.</strong> This requires a small trick during upload: the filename needs to be set to exactly <code>.htaccess</code> (no name before the dot — it’s a dotfile), and since it’s not really an image, the <code>Content-Type</code> needs to be something plausible like <code>text/plain</code> rather than an image type, since we’re not pretending this one is an image at all, just getting it stored in the right directory.</p>
+<p class="has-line-data" data-line-start="84" data-line-end="85"><strong>Uploading the actual shell, using the new extension.</strong> With <code>.htaccess</code> in place declaring <code>.l33t</code> as executable PHP, uploading a file named <code>shell.l33t</code> containing the normal PHP payload — an extension that was never on the blacklist to begin with, because nobody would think to blacklist something so arbitrary.</p>
+<p class="has-line-data" data-line-start="86" data-line-end="87"><strong>Confirming it worked.</strong> Visiting the URL of the uploaded <code>.l33t</code> file directly executes it as PHP, exactly as if it had been a <code>.php</code> file all along — the blacklist never stood a chance, because the file that actually mattered for triggering the block (<code>shell.l33t</code>) was never dangerous-looking, and the file that reconfigured the server (<code>.htaccess</code>) was never PHP at all.</p>
+<h3 class="code-line has-line-data" data-line-start="88" data-line-end="89"><a id="Server_Behavior_88"></a>Server Behavior</h3>
+<ul>
+<li class="has-line-data" data-line-start="90" data-line-end="91"><strong>Uploading <code>shell.php</code> directly:</strong> Rejected — “php files are not allowed” or similar, confirming a real, working extension blacklist.</li>
+<li class="has-line-data" data-line-start="91" data-line-end="92"><strong>Uploading a file named <code>.htaccess</code> containing <code>AddType application/x-httpd-php .l33t</code>:</strong> Accepted — since <code>.htaccess</code> isn’t a PHP file and isn’t covered by the blacklist at all.</li>
+<li class="has-line-data" data-line-start="92" data-line-end="93"><strong>Uploading a file named <code>shell.l33t</code> (PHP code, arbitrary extension):</strong> Accepted — <code>.l33t</code> was never on the blacklist either, since it’s not a real, well-known executable extension on its own.</li>
+<li class="has-line-data" data-line-start="93" data-line-end="95"><strong>Requesting <code>shell.l33t</code>’s URL directly, after the <code>.htaccess</code> file is in place in the same directory:</strong> Executes as PHP, since Apache now treats <code>.l33t</code> files in that directory as PHP scripts, per the directive you uploaded.</li>
+</ul>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="97" data-line-end="98"><a id="4_StepbyStep_Walkthrough_97"></a>4. Step-by-Step Walkthrough</h2>
+<h3 class="code-line has-line-data" data-line-start="99" data-line-end="100"><a id="Step_1_Confirm_the_Blacklist_Blocks_Direct_PHP_Uploads_99"></a>Step 1: Confirm the Blacklist Blocks Direct PHP Uploads</h3>
+<ol>
+<li class="has-line-data" data-line-start="101" data-line-end="102">Log in with <code>wiener:peter</code> and go to <strong>“My account.”</strong></li>
+<li class="has-line-data" data-line-start="102" data-line-end="104">Create a file named <code>shell.php</code> containing:</li>
+</ol>
+<pre><code class="has-line-data language-php" data-line-start="105" data-line-end="107"><span class="hljs-meta">&lt;?php</span> <span class="hljs-keyword">echo</span> <span class="hljs-title function_ invoke__">file_get_contents</span>(<span class="hljs-string">&#x27;/home/carlos/secret&#x27;</span>); <span class="hljs-meta">?&gt;</span>
+</code></pre>
+<ol start="3">
+<li class="has-line-data" data-line-start="108" data-line-end="109">Attempt to upload it via the avatar field.</li>
+<li class="has-line-data" data-line-start="109" data-line-end="111"><strong>Observation:</strong> The upload is rejected with a message indicating PHP files aren’t allowed — confirming a genuine extension-based filter is active.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="111" data-line-end="112"><a id="Step_2_Identify_the_Web_Server_Software_111"></a>Step 2: Identify the Web Server Software</h3>
+<ol>
+<li class="has-line-data" data-line-start="113" data-line-end="114">In Burp’s Proxy history, inspect the response headers of any request to the lab.</li>
+<li class="has-line-data" data-line-start="114" data-line-end="115">Look for a <code>Server</code> header, e.g. <code>Server: Apache/2.4.41 (Ubuntu)</code>.</li>
+<li class="has-line-data" data-line-start="115" data-line-end="117">This confirms Apache is in use, which is important because Apache specifically supports <code>.htaccess</code> files for per-directory configuration overrides — a feature not all web servers share.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="117" data-line-end="118"><a id="Step_3_Prepare_the_htaccess_File_117"></a>Step 3: Prepare the .htaccess File</h3>
+<ol>
+<li class="has-line-data" data-line-start="119" data-line-end="120">On your machine, create a plain text file with <strong>exactly</strong> the filename <code>.htaccess</code> (starting with a dot, no name before it, no other extension).</li>
+<li class="has-line-data" data-line-start="120" data-line-end="122">Set its contents to:</li>
+</ol>
+<pre><code class="has-line-data" data-line-start="123" data-line-end="125">AddType application/x-httpd-php .l33t
+</code></pre>
+<ol start="3">
+<li class="has-line-data" data-line-start="126" data-line-end="128">This single line tells Apache: “treat any file ending in <code>.l33t</code>, in this directory, as if it were a PHP script.”</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="128" data-line-end="129"><a id="Step_4_Upload_the_htaccess_File_128"></a>Step 4: Upload the .htaccess File</h3>
+<ol>
+<li class="has-line-data" data-line-start="130" data-line-end="131">Turn on Burp Proxy interception, or send the upload request straight to Repeater once captured.</li>
+<li class="has-line-data" data-line-start="131" data-line-end="132">Attempt to upload the <code>.htaccess</code> file via the avatar field.</li>
+<li class="has-line-data" data-line-start="132" data-line-end="135">In the intercepted/Repeater request, make sure of two things:
+<ul>
+<li class="has-line-data" data-line-start="133" data-line-end="134">The <code>filename</code> field in the multipart body is set to exactly <code>.htaccess</code>.</li>
+<li class="has-line-data" data-line-start="134" data-line-end="135">The <code>Content-Type</code> header for this file part is set to something plausible and non-suspicious, such as <code>text/plain</code> — you’re not pretending this is an image.</li>
+</ul>
+</li>
+<li class="has-line-data" data-line-start="135" data-line-end="136">Forward or send the request.</li>
+<li class="has-line-data" data-line-start="136" data-line-end="138"><strong>Result:</strong> The upload succeeds — <code>.htaccess</code> was never on the extension blacklist, since it’s not <code>.php</code> (or any of the other typical dangerous extensions the filter was written to catch).</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="138" data-line-end="139"><a id="Step_5_Prepare_and_Upload_the_Web_Shell_With_the_New_Extension_138"></a>Step 5: Prepare and Upload the Web Shell With the New Extension</h3>
+<ol>
+<li class="has-line-data" data-line-start="140" data-line-end="142">Create your PHP web shell file, but save it with the extension you defined in Step 3’s <code>.htaccess</code> directive:</li>
+</ol>
+<pre><code class="has-line-data language-php" data-line-start="143" data-line-end="145"><span class="hljs-meta">&lt;?php</span> <span class="hljs-keyword">echo</span> <span class="hljs-title function_ invoke__">file_get_contents</span>(<span class="hljs-string">&#x27;/home/carlos/secret&#x27;</span>); <span class="hljs-meta">?&gt;</span>
+</code></pre>
+<p class="has-line-data" data-line-start="146" data-line-end="147">Save this as <code>shell.l33t</code>.</p>
+<ol start="2">
+<li class="has-line-data" data-line-start="148" data-line-end="149">Upload this file via the same avatar upload field.</li>
+<li class="has-line-data" data-line-start="149" data-line-end="151"><strong>Result:</strong> This upload also succeeds — <code>.l33t</code> is not a recognized dangerous extension, so the blacklist has no reason to block it.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="151" data-line-end="152"><a id="Step_6_Trigger_Execution_151"></a>Step 6: Trigger Execution</h3>
+<ol>
+<li class="has-line-data" data-line-start="153" data-line-end="154">Find the URL where your files were stored — typically something like <code>/files/avatars/shell.l33t</code> (in the same directory as the <code>.htaccess</code> file you uploaded in Step 4, which is essential — the <code>.htaccess</code> directive only applies to files in the same directory it’s placed in).</li>
+<li class="has-line-data" data-line-start="154" data-line-end="155">Visit this URL directly in your browser, or send a <code>GET</code> request to it via Burp Repeater.</li>
+<li class="has-line-data" data-line-start="155" data-line-end="157"><strong>Result:</strong> Because <code>.htaccess</code> reconfigured this directory to treat <code>.l33t</code> files as PHP, the server executes your code and the response contains the contents of <code>/home/carlos/secret</code>.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="157" data-line-end="158"><a id="Step_7_Submit_the_Solution_157"></a>Step 7: Submit the Solution</h3>
+<ol>
+<li class="has-line-data" data-line-start="159" data-line-end="160">Copy the secret string from the response.</li>
+<li class="has-line-data" data-line-start="160" data-line-end="161">Click the lab banner’s <strong>“Submit solution”</strong> button, paste the secret, and submit.</li>
+<li class="has-line-data" data-line-start="161" data-line-end="163">The lab banner updates to <strong>“Congratulations, you solved the lab!”</strong>.</li>
+</ol>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="165" data-line-end="166"><a id="5_Different_Ways_to_Exploit_This_Alternative_Methods_Payloads_165"></a>5. Different Ways to Exploit This (Alternative Methods &amp; Payloads)</h2>
+<p class="has-line-data" data-line-start="167" data-line-end="168"><strong>Simple extension-guessing, worth trying first before reaching for <code>.htaccess</code>:</strong></p>
+<pre><code class="has-line-data" data-line-start="170" data-line-end="176">shell.php5
+shell.phtml
+shell.php3
+shell.pht
+shell.phar
+</code></pre>
+<p class="has-line-data" data-line-start="177" data-line-end="178">Some real-world blacklists genuinely are incomplete and forget one or more of these legacy PHP-executing extensions — always worth a handful of quick attempts before assuming a more involved bypass like <code>.htaccess</code> reconfiguration is necessary.</p>
+<p class="has-line-data" data-line-start="179" data-line-end="180"><strong>Automating extension-guessing with Burp Intruder, instead of manually trying each one:</strong></p>
+<p class="has-line-data" data-line-start="181" data-line-end="182">Send the upload request to Intruder, mark the file extension portion of the <code>filename</code> field as the payload position, and load a wordlist of known alternate executable extensions (<code>.php5</code>, <code>.phtml</code>, <code>.pht</code>, <code>.phar</code>, <code>.shtml</code>, <code>.asa</code>, <code>.cer</code>, <code>.asax</code> for IIS/ASP targets, etc.) as a <strong>Simple list</strong> payload. Compare response lengths/status codes across the results to spot which ones were accepted.</p>
+<p class="has-line-data" data-line-start="183" data-line-end="184"><strong>Case-sensitivity bypass, if the blacklist check itself is case-sensitive but the filesystem/server isn’t:</strong></p>
+<pre><code class="has-line-data" data-line-start="186" data-line-end="190">shell.PHP
+shell.pHp
+shell.PhP
+</code></pre>
+<p class="has-line-data" data-line-start="191" data-line-end="192">If the filter’s comparison logic checks specifically for lowercase <code>.php</code> and the underlying OS/web server treats extensions case-insensitively (or Apache is configured to execute PHP regardless of case), varying the capitalization can slip past a naively-written check.</p>
+<p class="has-line-data" data-line-start="193" data-line-end="194"><strong>Trailing character / null byte tricks, on older or specifically vulnerable server configurations:</strong></p>
+<pre><code class="has-line-data" data-line-start="196" data-line-end="200">shell.php.
+shell.php%00.jpg
+shell.php%20
+</code></pre>
+<p class="has-line-data" data-line-start="201" data-line-end="202">A trailing dot, a trailing space, or (on legacy PHP versions vulnerable to null byte injection) an embedded <code>%00</code> can sometimes cause the filter to see one thing while the filesystem stores another — these are largely historical bypasses at this point but worth knowing as a category.</p>
+<p class="has-line-data" data-line-start="203" data-line-end="204"><strong>Redefining a different, more innocuous-sounding extension than <code>.l33t</code>,</strong> in case a specific extension name itself triggers some other, separate filter:</p>
+<pre><code class="has-line-data" data-line-start="206" data-line-end="209">AddType application/x-httpd-php .config
+AddType application/x-httpd-php .settings
+</code></pre>
+<p class="has-line-data" data-line-start="210" data-line-end="211">Choosing an extension that sounds like ordinary application data (rather than something that looks deliberately suspicious like <code>.l33t</code>) is a more realistic, stealthier choice in an actual assessment, since defenders reviewing logs are less likely to flag it immediately.</p>
+<p class="has-line-data" data-line-start="212" data-line-end="213"><strong>Using an <code>.htaccess</code> directive to disable the extension check indirectly, rather than adding a new mapped extension</strong>, in server configurations that support it:</p>
+<pre><code class="has-line-data" data-line-start="215" data-line-end="218">RemoveHandler .php
+AddType application/x-httpd-php .php
+</code></pre>
+<p class="has-line-data" data-line-start="219" data-line-end="220">Some misconfigurations can be worked around by directly re-asserting PHP handling for the very extension that’s blacklisted at the application layer — since <code>.htaccess</code> operates beneath the application’s own validation logic, this can sometimes restore execution for the “blocked” extension itself, if the blacklist truly is only an application-layer check with no corresponding server-level restriction.</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="223" data-line-end="224"><a id="6_If_This_Existed_in_the_Real_World_223"></a>6. If This Existed in the Real World</h2>
+<p class="has-line-data" data-line-start="225" data-line-end="226">Extension blacklists are a widely recognized anti-pattern in real security engineering precisely because they can never be complete, and the <code>.htaccess</code> reconfiguration trick specifically has a long, well-documented history of real-world exploitation:</p>
+<ul>
+<li class="has-line-data" data-line-start="227" data-line-end="228"><strong>Countless real Apache-hosted CMS and forum platforms</strong> running with <code>AllowOverride All</code> (permitting <code>.htaccess</code> files to override server configuration) alongside an upload feature that blacklists only <code>.php</code> and a couple of obvious variants have been compromised this exact way — it’s common enough to appear in standard penetration testing methodologies and OWASP guidance as a named technique.</li>
+<li class="has-line-data" data-line-start="228" data-line-end="229"><strong>Shared hosting environments</strong> are particularly susceptible, since many hosting providers enable <code>.htaccess</code> support broadly for legitimate customization purposes (custom redirects, caching rules), inadvertently giving any application with a file upload vulnerability on that hosting account a path to full reconfiguration of how that directory is served.</li>
+<li class="has-line-data" data-line-start="229" data-line-end="231"><strong>Security guidance from Apache itself, and virtually every web application security standard (OWASP included),</strong> explicitly recommends disabling <code>.htaccess</code> override support (<code>AllowOverride None</code>) in production and instead managing all configuration centrally, specifically because of this exact class of abuse — the fact that this recommendation exists as a standard hardening step is itself evidence of how often this pattern has been exploited in real deployments.</li>
+</ul>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="233" data-line-end="234"><a id="7_ProTips_Common_Pitfalls_233"></a>7. Pro-Tips &amp; Common Pitfalls</h2>
+<ul>
+<li class="has-line-data" data-line-start="235" data-line-end="236"><strong>Pay attention to lab hints — “you need to upload two files” is a genuine clue, not filler text.</strong> When a lab or a real target explicitly signals that a multi-stage approach is needed, resist the urge to keep hammering on single-file extension tricks; it’s telling you the intended path requires reconfiguring something first.</li>
+<li class="has-line-data" data-line-start="236" data-line-end="237"><strong>The <code>.htaccess</code> file must land in the <em>same directory</em> as the file you want executed.</strong> Apache’s per-directory configuration only applies to the directory it’s placed in (and subdirectories, by default) — uploading <code>.htaccess</code> to one location and your shell to a different one won’t work.</li>
+<li class="has-line-data" data-line-start="237" data-line-end="238"><strong>Set a plausible Content-Type for the <code>.htaccess</code> upload, and don’t overthink the filename.</strong> It genuinely is just <code>.htaccess</code>, starting with the dot — this is a legitimate Unix/Apache convention for a hidden configuration file, not a typo or placeholder.</li>
+<li class="has-line-data" data-line-start="238" data-line-end="239"><strong>Identify the web server technology early in any file upload assessment.</strong> The <code>.htaccess</code> technique is Apache-specific; different servers (IIS, Nginx) have their own equivalent (or entirely different) configuration mechanisms and dangerous-extension quirks, so knowing the target stack shapes which bypass techniques are even worth attempting.</li>
+<li class="has-line-data" data-line-start="239" data-line-end="241"><strong>The vulnerable backend pattern:</strong></li>
+</ul>
+<pre><code class="has-line-data language-apache" data-line-start="242" data-line-end="248"><span class="hljs-comment"># ❌ VULNERABLE — AllowOverride enabled broadly, letting any uploaded</span>
+<span class="hljs-comment"># .htaccess file reconfigure how this directory serves and executes files</span>
+<span class="hljs-section">&lt;Directory <span class="hljs-string">&quot;/var/www/files&quot;</span>&gt;</span>
+    <span class="hljs-attribute">AllowOverride</span> <span class="hljs-literal">All</span>
+<span class="hljs-section">&lt;/Directory&gt;</span>
+</code></pre>
+<pre><code class="has-line-data language-php" data-line-start="250" data-line-end="258"><span class="hljs-comment">// ❌ VULNERABLE — blocks a fixed list of &quot;known dangerous&quot; extensions,</span>
+<span class="hljs-comment">// with no consideration for files that could reconfigure server behavior</span>
+<span class="hljs-variable">$blacklist</span> = [<span class="hljs-string">&#x27;php&#x27;</span>, <span class="hljs-string">&#x27;php3&#x27;</span>, <span class="hljs-string">&#x27;php4&#x27;</span>, <span class="hljs-string">&#x27;php5&#x27;</span>, <span class="hljs-string">&#x27;phtml&#x27;</span>];
+<span class="hljs-variable">$ext</span> = <span class="hljs-title function_ invoke__">pathinfo</span>(<span class="hljs-variable">$_FILES</span>[<span class="hljs-string">&#x27;avatar&#x27;</span>][<span class="hljs-string">&#x27;name&#x27;</span>], PATHINFO_EXTENSION);
+<span class="hljs-keyword">if</span> (<span class="hljs-title function_ invoke__">in_array</span>(<span class="hljs-title function_ invoke__">strtolower</span>(<span class="hljs-variable">$ext</span>), <span class="hljs-variable">$blacklist</span>)) {
+    <span class="hljs-keyword">die</span>(<span class="hljs-string">&#x27;File type not allowed&#x27;</span>);
+}
+</code></pre>
+<pre><code class="has-line-data language-apache" data-line-start="260" data-line-end="269"><span class="hljs-comment"># ✅ SAFE — disable .htaccess override support entirely for upload directories,</span>
+<span class="hljs-comment"># and explicitly deny script execution regardless of extension</span>
+<span class="hljs-section">&lt;Directory <span class="hljs-string">&quot;/var/www/files&quot;</span>&gt;</span>
+    <span class="hljs-attribute">AllowOverride</span> None
+    <span class="hljs-section">&lt;FilesMatch <span class="hljs-string">&quot;\.(php|php3|php4|php5|phtml|pht|phar)$&quot;</span>&gt;</span>
+        <span class="hljs-attribute">Require</span> <span class="hljs-literal">all</span> denied
+    <span class="hljs-section">&lt;/FilesMatch&gt;</span>
+<span class="hljs-section">&lt;/Directory&gt;</span>
+</code></pre>
+<ul>
+<li class="has-line-data" data-line-start="270" data-line-end="275"><strong>Prevention summary:</strong>
+<ul>
+<li class="has-line-data" data-line-start="271" data-line-end="272">Use an allow-list of explicitly permitted, safe file extensions rather than a blacklist of dangerous ones — allow-lists are complete by construction, blacklists never are.</li>
+<li class="has-line-data" data-line-start="272" data-line-end="273">Disable <code>AllowOverride</code>/<code>.htaccess</code> support for any directory that accepts user-uploaded files, so uploaded content can never reconfigure how that directory is served.</li>
+<li class="has-line-data" data-line-start="273" data-line-end="274">Enforce script-execution restrictions at the web server configuration level (as a <code>Require all denied</code> rule, or by disabling script handlers entirely for that directory), independent of and in addition to any application-layer filename validation.</li>
+<li class="has-line-data" data-line-start="274" data-line-end="275">Combine multiple, independent layers of defense — content inspection, safe storage location, disabled execution, and randomized filenames — since any single layer, including a blacklist, can eventually be found incomplete.</li>
+</ul>
+</li>
+</ul>
+
+</body>
+</html>
